@@ -182,8 +182,21 @@
       const [submitSuccess, setSubmitSuccess] = useState(false);
 
       // ---- 模拟数据 ----
-      const [sentimentScore] = useState(32);
-      const [sentimentTrend] = useState('stable'); // up, down, stable
+      const [sentimentScore, setSentimentScore] = useState(32);
+      const [sentimentTrend, setSentimentTrend] = useState('stable'); // up, down, stable
+
+      // LLM 舆情指数动态波动
+      useEffect(() => {
+        const interval = setInterval(() => {
+          setSentimentScore(prev => {
+            const delta = Math.floor(Math.random() * 5) - 2; // -2 ~ +2
+            const next = Math.max(28, Math.min(36, prev + delta));
+            setSentimentTrend(next > prev ? 'up' : next < prev ? 'down' : 'stable');
+            return next;
+          });
+        }, 3000);
+        return () => clearInterval(interval);
+      }, []);
       const [auditLogs] = useState([
         { id: 1, time: '2026-04-21 23:14:22', user: '运营-Aki', action: '修改邮件标题', detail: '原标题：3.2版本福利 → 新标题：3.2版本遐蝶剧情上线全服福利' },
         { id: 2, time: '2026-04-21 22:58:07', user: '运营-Aki', action: '调整附件数量', detail: '星琼 800 → 1600' },
@@ -219,6 +232,7 @@
         if (val === '') { setQuantity(''); return; }
         const num = parseInt(val, 10);
         if (isNaN(num)) return;
+        if (num < 0) return; // 拦截负数输入
         setQuantity(num);
         if (num <= 1000) setConfirmedWarning(false);
       };
@@ -263,7 +277,8 @@
 
       const diffData = useMemo(() => getDiffData(), [getDiffData]);
       const diffFields = diffData.filter(d => d.hasDiff);
-      const allDiffsResolved = diffFields.length > 0 && diffFields.every(d => diffDecisions[d.key] != null);
+      const allDiffsConfirmed = diffFields.length > 0 && diffFields.every(d => diffDecisions[d.key] === 'confirm');
+      const hasRejectedDiff = diffFields.some(d => diffDecisions[d.key] === 'reject');
 
       const handleFinalSubmit = () => {
         setSubmitting(true);
@@ -937,9 +952,17 @@
                   {/* Modal 底部 */}
                   <div className="px-6 py-4 border-t border-slate-700 bg-slate-800/30 flex items-center justify-between">
                     <div className="flex items-center gap-2 text-xs">
-                      <div className={`w-2 h-2 rounded-full ${allDiffsResolved ? 'bg-emerald-400' : 'bg-slate-600'}`} />
-                      <span className={allDiffsResolved ? 'text-emerald-400' : 'text-slate-500'}>
-                        {allDiffsResolved ? '所有差异项已处理' : `待处理差异项: ${diffFields.filter(d => diffDecisions[d.key] == null).length}`}
+                      <div className={`w-2 h-2 rounded-full ${
+                        hasRejectedDiff ? 'bg-red-400' : allDiffsConfirmed ? 'bg-emerald-400' : 'bg-slate-600'
+                      }`} />
+                      <span className={
+                        hasRejectedDiff ? 'text-red-400' : allDiffsConfirmed ? 'text-emerald-400' : 'text-slate-500'
+                      }>
+                        {hasRejectedDiff
+                          ? '存在退回项，流程已阻断'
+                          : allDiffsConfirmed
+                          ? '所有差异项已确认无误'
+                          : `待处理差异项: ${diffFields.filter(d => diffDecisions[d.key] == null).length}`}
                       </span>
                     </div>
                     <div className="flex items-center gap-3">
@@ -950,29 +973,41 @@
                       >
                         取消
                       </button>
-                      <motion.button
-                        whileHover={allDiffsResolved ? { scale: 1.02 } : {}}
-                        whileTap={allDiffsResolved ? { scale: 0.98 } : {}}
-                        onClick={handleFinalSubmit}
-                        disabled={!allDiffsResolved || submitting}
-                        className={`px-6 py-2.5 rounded-lg text-sm font-medium flex items-center gap-2 transition-all ${
-                          allDiffsResolved
-                            ? 'bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-600/20'
-                            : 'bg-slate-700 text-slate-500 cursor-not-allowed'
-                        }`}
-                      >
-                        {submitting ? (
-                          <>
-                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                            提交中...
-                          </>
-                        ) : (
-                          <>
-                            <Icons.ChevronRight />
-                            确认进入双人灰度流
-                          </>
-                        )}
-                      </motion.button>
+                      {hasRejectedDiff ? (
+                        <motion.button
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => setShowDiffModal(false)}
+                          className="px-6 py-2.5 rounded-lg text-sm font-medium flex items-center gap-2 transition-all bg-red-600 text-white hover:bg-red-500 shadow-lg shadow-red-600/20"
+                        >
+                          <Icons.XCircle />
+                          一键退回修改
+                        </motion.button>
+                      ) : (
+                        <motion.button
+                          whileHover={allDiffsConfirmed ? { scale: 1.02 } : {}}
+                          whileTap={allDiffsConfirmed ? { scale: 0.98 } : {}}
+                          onClick={handleFinalSubmit}
+                          disabled={!allDiffsConfirmed || submitting}
+                          className={`px-6 py-2.5 rounded-lg text-sm font-medium flex items-center gap-2 transition-all ${
+                            allDiffsConfirmed
+                              ? 'bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-600/20'
+                              : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                          }`}
+                        >
+                          {submitting ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                              提交中...
+                            </>
+                          ) : (
+                            <>
+                              <Icons.ChevronRight />
+                              确认进入双人灰度流
+                            </>
+                          )}
+                        </motion.button>
+                      )}
                     </div>
                   </div>
                 </motion.div>
