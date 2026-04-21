@@ -222,7 +222,7 @@
 
       const gachaEqui = useMemo(() => {
         if (attachType === 'stellar') return Math.floor(quantity / 160);
-        if (attachType === 'ticket') return quantity; // 专票本身就是抽卡道具
+        if (attachType === 'ticket') return quantity * 160; // 专票 → 星琼换算
         return null;
       }, [quantity, attachType]);
 
@@ -619,8 +619,8 @@
                                   <Icons.AlertTriangle />
                                   <span className="text-orange-400">
                                     {attachType === 'ticket'
-                                      ? `此为高价值限定资产，1张专票等价于 1600 星琼！`
-                                      : `此为高价值资产，当前输入等价于 ${gachaEqui} 抽`
+                                      ? `此为高价值限定资产，1张专票=160星琼，当前等价于 ${gachaEqui} 星琼！`
+                                      : `此为高价值资产，当前输入等价于 ${gachaEqui} 抽！`
                                     }
                                   </span>
                                 </motion.div>
