@@ -148,7 +148,7 @@
       return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
     };
 
-    // ===== 常量 =====
+    // ===== 道具类型配置（含动态阈值） =====
     const ATTACHMENT_TYPES = [
       { value: 'credit', label: '信用点', desc: '基础货币' },
       { value: 'exp', label: '经验书', desc: '角色培养素材' },
@@ -156,14 +156,20 @@
       { value: 'ticket', label: '专票', desc: '限定跃迁凭证' },
     ];
 
-    const HISTORICAL_MEAN = 1000;
+    // 字典化动态阈值配置
+    const ATTACHMENT_THRESHOLDS = {
+      credit:  { warning: 100000, fuse: 1000000, unit: '信用点' },
+      exp:     { warning: 50,     fuse: 100,      unit: '本' },
+      stellar: { warning: 1000,   fuse: 2000,     unit: '星琼' },
+      ticket:  { warning: 5,      fuse: 10,       unit: '张' },
+    };
 
     const STANDARD_TEMPLATE = {
       title: '【常规】版本维护补偿',
       body: '亲爱的开拓者：\n\n本次停服维护已完成，感谢大家的耐心等待。\n\n如有任何问题，请联系客服。',
       attachmentType: 'credit',
       attachmentTypeLabel: '信用点',
-      quantity: 1000,
+      quantity: 100000, // 信用点的标准模板预警线
     };
 
     // ===== 主组件 =====
@@ -201,24 +207,30 @@
         }, 3000);
         return () => clearInterval(interval);
       }, []);
+
       const [auditLogs] = useState([
         { id: 1, time: '2026-04-21 23:14:22', user: '运营-Aki', action: '修改邮件标题', detail: '原标题：3.2版本福利 → 新标题：3.2版本遐蝶剧情上线全服福利' },
         { id: 2, time: '2026-04-21 22:58:07', user: '运营-Aki', action: '调整附件数量', detail: '星琼 800 → 1600' },
         { id: 3, time: '2026-04-21 22:45:33', user: '系统', action: '自动保存草稿', detail: '会话 ID: sess_7f8a9b2c' },
       ]);
 
-      // ---- 计算属性：状态机 ----
+      // ---- 当前道具阈值 ----
+      const currentLimits = ATTACHMENT_THRESHOLDS[attachType];
+
+      // ---- 计算属性：状态机（基于动态阈值） ----
       const isHighValue = attachType === 'stellar' || attachType === 'ticket';
+
       const gachaEqui = useMemo(() => {
-        if (!isHighValue) return null;
-        return Math.floor(quantity / 160);
-      }, [quantity, isHighValue]);
+        if (attachType === 'stellar') return Math.floor(quantity / 160);
+        if (attachType === 'ticket') return quantity; // 专票本身就是抽卡道具
+        return null;
+      }, [quantity, attachType]);
 
       const zone = useMemo(() => {
-        if (quantity <= 1000) return 'safe';
-        if (quantity <= 2000) return 'warning';
+        if (quantity <= currentLimits.warning) return 'safe';
+        if (quantity <= currentLimits.fuse) return 'warning';
         return 'fuse';
-      }, [quantity]);
+      }, [quantity, currentLimits]);
 
       const isFuse = zone === 'fuse';
       const isWarning = zone === 'warning';
@@ -238,7 +250,7 @@
         if (isNaN(num)) return;
         if (num < 0) return; // 拦截负数输入
         setQuantity(num);
-        if (num <= 1000) setConfirmedWarning(false);
+        if (num <= currentLimits.warning) setConfirmedWarning(false);
       };
 
       const handleTypeChange = (e) => {
@@ -260,7 +272,11 @@
           attachmentType: getCurrentAttachmentLabel(),
           quantity,
         };
-        const tmpl = STANDARD_TEMPLATE;
+        const tmpl = {
+          ...STANDARD_TEMPLATE,
+          attachmentTypeLabel: getCurrentAttachmentLabel(),
+          quantity: ATTACHMENT_THRESHOLDS[attachType].warning, // 模板的 quantity 跟随当前类型的预警线
+        };
         const fields = [
           { key: 'title', label: '邮件标题', left: current.title, right: tmpl.title },
           { key: 'body', label: '正文内容', left: current.body, right: tmpl.body, isText: true },
@@ -576,7 +592,7 @@
                           <div className="space-y-2 relative">
                             <label className="text-sm text-slate-400 flex items-center gap-2">
                               附件数量
-                              <span className="text-[10px] text-slate-600">(历史均值: {HISTORICAL_MEAN})</span>
+                              <span className="text-[10px] text-slate-600">(当前类型预警线: {currentLimits.warning}{currentLimits.unit})</span>
                             </label>
                             <div className="relative">
                               <input
@@ -591,7 +607,7 @@
                               </div>
                             </div>
 
-                            {/* 星琼换算提示 */}
+                            {/* 高价值资产换算提示 */}
                             <AnimatePresence>
                               {isHighValue && gachaEqui != null && quantity > 0 && (
                                 <motion.div
@@ -602,7 +618,10 @@
                                 >
                                   <Icons.AlertTriangle />
                                   <span className="text-orange-400">
-                                    此为高价值资产，当前输入等价于 <span className="font-bold font-mono">{gachaEqui}</span> 抽
+                                    {attachType === 'ticket'
+                                      ? `此为高价值限定资产，1张专票等价于 1600 星琼！`
+                                      : `此为高价值资产，当前输入等价于 ${gachaEqui} 抽`
+                                    }
                                   </span>
                                 </motion.div>
                               )}
@@ -627,8 +646,8 @@
                           </div>
                           <div className="flex justify-between text-[10px] text-slate-600 font-mono">
                             <span>0</span>
-                            <span className="text-blue-400">1000</span>
-                            <span className="text-amber-400">2000</span>
+                            <span className="text-blue-400">{currentLimits.warning}</span>
+                            <span className="text-amber-400">{currentLimits.fuse}</span>
                             <span className="text-red-400">∞</span>
                           </div>
                         </div>
@@ -647,8 +666,8 @@
                                 <span className="font-bold">预警提醒</span>
                               </div>
                               <p className="text-xs text-slate-400">
-                                当前数量 <span className="font-mono text-amber-300">{quantity}</span> 高于历史均值
-                                <span className="font-mono text-amber-300"> {HISTORICAL_MEAN}</span>，请确认这是预期内的运营决策。
+                                当前数量 <span className="font-mono text-amber-300">{quantity}</span> 高于该类道具预警线
+                                <span className="font-mono text-amber-300"> {currentLimits.warning}{currentLimits.unit}</span>，请确认这是预期内的运营决策。
                               </p>
                               <label className="flex items-center gap-3 cursor-pointer group">
                                 <div className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${
@@ -665,7 +684,7 @@
                                   className="hidden"
                                 />
                                 <span className={`text-sm ${confirmedWarning ? 'text-amber-300' : 'text-slate-400'}`}>
-                                  数量高于历史均值，我确认无误
+                                  数量高于该类道具预警线，我确认无误
                                 </span>
                               </label>
                             </motion.div>
@@ -686,8 +705,8 @@
                                 <span className="font-bold">熔断触发</span>
                               </div>
                               <p className="text-xs text-slate-400">
-                                当前输入值 <span className="font-mono text-red-300">{quantity}</span> 已超出熔断阈值
-                                <span className="font-mono text-red-300"> 2000</span>。该操作被判定为极高风险，已自动锁定提交通道。
+                                当前输入值 <span className="font-mono text-red-300">{quantity}</span> 已超出该类道具的安全熔断线
+                                <span className="font-mono text-red-300"> {currentLimits.fuse}{currentLimits.unit}</span>！该操作被判定为极高风险，已自动锁定提交通道。
                               </p>
                               <div className="text-xs text-slate-500">
                                 如需解锁，请联系最高权限管理员获取专属验证码。
